@@ -1,0 +1,4 @@
+storePassword=DEFINA_LOCALMENTE
+keyPassword=DEFINA_LOCALMENTE
+keyAlias=arthur-victor
+storeFile=C:/caminho/seguro/arthur-victor.jks
