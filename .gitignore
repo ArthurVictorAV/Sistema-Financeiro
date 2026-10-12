@@ -16,3 +16,7 @@ windows/flutter/ephemeral/
 *.log
 .idea/
 *.iml
+
+/flutter/
+/backup-*/
+/client_secret*.json
