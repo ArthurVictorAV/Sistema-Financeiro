@@ -11,6 +11,8 @@ import 'store.dart';
 import 'sync.dart';
 import 'ui/identity.dart';
 import 'ui/record_form.dart';
+import 'ui/reports.dart';
+import 'ui/portfolio.dart';
 export 'ui/identity.dart' show appTheme;
 
 Future<void> main() async {
@@ -89,6 +91,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   DateTime selected = DateTime.now();
   Period period = Period.month;
   String search = '', filter = 'Todos';
+  String? categoryFilter;
   String? client;
   bool accumulated = true;
   Ledger get ledger => widget.store.ledger;
@@ -390,7 +393,16 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                                 onTap: () => setState(() => tab = 4),
                               ),
                             ),
-                          if (tab < 4) dateControls(),
+                          if (tab < 4)
+                            Align(
+                              alignment: Alignment.topCenter,
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxWidth: tab == 3 ? 1180 : double.infinity,
+                                ),
+                                child: dateControls(),
+                              ),
+                            ),
                           const SizedBox(height: 16),
                           ...switch (tab) {
                             0 => dashboard(),
@@ -621,11 +633,21 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           (t) =>
               range.contains(t['date']) &&
               ('$t'.toLowerCase().contains(search.toLowerCase())) &&
+              (categoryFilter == null ||
+                  (t['category'] ?? 'Outros') == categoryFilter) &&
               (filter == 'Todos' ||
                   (filter == 'Entradas' ? t['sign'] == 1 : t['sign'] == -1)),
         )
         .toList();
     return [
+      if (categoryFilter != null)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: InputChip(
+            label: Text('Categoria: $categoryFilter'),
+            onDeleted: () => setState(() => categoryFilter = null),
+          ),
+        ),
       TextField(
         decoration: const InputDecoration(
           prefixIcon: Icon(Icons.search),
@@ -857,130 +879,34 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     ];
   }
 
-  List<Widget> reports() {
-    final shifts = ledger
-        .rows('shift')
-        .where((s) => range.contains(s['date']))
-        .toList();
-    final categories = <String, int>{};
-    for (final t in ledger.transactions.where(
-      (t) => range.contains(t['date']) && t['sign'] == -1,
-    )) {
-      categories.update(
-        t['category'] ?? 'Outros',
-        (v) => v + (t['amount'] as int),
-        ifAbsent: () => t['amount'],
-      );
-    }
-    final trend = List.generate(6, (i) {
-      final d = DateTime(selected.year, selected.month - 5 + i);
-      return (month(d), ledger.finance(DateRange.forDate(d, Period.month)));
-    });
-    final maximum = trend.fold<int>(
-      1,
-      (v, t) => [v, t.$2.income, t.$2.expenses].reduce((a, b) => a > b ? a : b),
-    );
-    return [
-      metrics(),
-      heading('Evolução mensal'),
-      const Text(
-        'Entradas em verde • despesas em vermelho',
-        style: TextStyle(color: Colors.grey, fontSize: 12),
-      ),
-      Card(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            children: [
-              for (final t in trend)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Row(
-                    children: [
-                      SizedBox(width: 70, child: Text(t.$1)),
-                      Expanded(
-                        child: Column(
-                          children: [
-                            LinearProgressIndicator(
-                              value: t.$2.income / maximum,
-                              color: green,
-                              minHeight: 7,
-                            ),
-                            const SizedBox(height: 5),
-                            LinearProgressIndicator(
-                              value: t.$2.expenses / maximum,
-                              color: red,
-                              minHeight: 7,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(money(t.$2.balance)),
-                    ],
-                  ),
-                ),
-            ],
-          ),
+  List<Widget> reports() => [
+    ReportsView(
+      ledger: ledger,
+      selected: selected,
+      period: period,
+      export: () => action(
+        () => saveFile(
+          'relatorio-${day(selected)}.csv',
+          exportCsv(ledger, range),
         ),
       ),
-      heading('Trabalho no período'),
-      metric(
-        'Horas registradas',
-        hours(shifts.fold<int>(0, (v, s) => v + (s['minutes'] as int))),
-        gold,
-        Icons.schedule,
-      ),
-      ...ledger.rows('client').map((c) {
-        final produced = shifts
-            .where((s) => s['client'] == c['id'])
-            .fold<int>(0, (v, s) => v + earned(s['minutes'], s['rate']));
-        final received = ledger
-            .rows('payment')
-            .where((p) => p['client'] == c['id'] && range.contains(p['date']))
-            .fold<int>(0, (v, p) => v + (p['amount'] as int));
-        final adjustments = ledger
-            .rows('adjustment')
-            .where((a) => a['client'] == c['id'] && range.contains(a['date']))
-            .fold<int>(
-              0,
-              (v, a) => v + (a['amount'] as int) * (a['sign'] as int),
-            );
-        return Card(
-          child: ListTile(
-            title: Text(c['name']),
-            subtitle: Text(
-              'Produzido em horas: ${money(produced)}\nExtras − descontos: ${money(adjustments)}\nTotal produzido: ${money(produced + adjustments)}\nRecebido no período: ${money(received)}\nPendente de todos os meses: ${money(ledger.totalDebt(c['id']))}',
-            ),
-            onTap: () => setState(() {
-              tab = 2;
-              client = c['id'];
-            }),
-          ),
-        );
+      selectMonth: (d) => setState(() {
+        selected = d;
+        period = Period.month;
       }),
-      heading('Gastos por categoria'),
-      if (categories.isEmpty)
-        const Text(
-          'Sem despesas no período.',
-          style: TextStyle(color: Colors.grey),
-        ),
-      ...categories.entries.map(
-        (e) => ListTile(title: Text(e.key), trailing: Text(money(e.value))),
-      ),
-      const SizedBox(height: 20),
-      OutlinedButton.icon(
-        onPressed: () => action(
-          () => saveFile(
-            'relatorio-${day(selected)}.csv',
-            exportCsv(ledger, range),
-          ),
-        ),
-        icon: const Icon(Icons.download_outlined),
-        label: const Text('Exportar relatório CSV'),
-      ),
-    ];
-  }
+      selectCategory: (category) => setState(() {
+        categoryFilter = category;
+        search = '';
+        filter = 'Saídas';
+        tab = 1;
+      }),
+      selectClient: (id) => setState(() {
+        client = id;
+        tab = 2;
+        accumulated = true;
+      }),
+    ),
+  ];
 
   Future<void> saveFile(String name, String text) async {
     final bytes = Uint8List.fromList(utf8.encode(text));
@@ -1022,6 +948,22 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
 
   List<Widget> settings() => [
+    Card(
+      child: ListTile(
+        leading: const Icon(Icons.savings_outlined, color: gold),
+        title: const Text('Patrimônio'),
+        subtitle: const Text(
+          'Contas, investimentos e dinheiro guardado • valores ocultos ao abrir',
+        ),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => PortfolioPage(store: widget.store, changes: sync),
+          ),
+        ),
+      ),
+    ),
+
     const Center(child: Brand(size: 100)),
     const SizedBox(height: 12),
     const Center(
@@ -1032,7 +974,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     ),
     const Center(
       child: Text(
-        'Finanças & trabalho • versão 0.1.0',
+        'Finanças & trabalho • versão 0.2.0',
         style: TextStyle(color: Colors.grey),
       ),
     ),

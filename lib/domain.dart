@@ -9,7 +9,14 @@ const entityKinds = [
   'adjustment',
   'payment',
   'category',
+  'asset',
 ];
+const assetGroups = {
+  'bank': 'Contas bancárias',
+  'investment': 'Investimentos',
+  'cash': 'Dinheiro guardado',
+  'other': 'Outras reservas',
+};
 
 String day(DateTime d) =>
     '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -114,14 +121,7 @@ class Operation {
   };
   factory Operation.fromJson(Json j) {
     if (j['v'] != 1 ||
-        ![
-          'client',
-          'entry',
-          'shift',
-          'adjustment',
-          'payment',
-          'category',
-        ].contains(j['kind']) ||
+        !entityKinds.contains(j['kind']) ||
         j['clock'] is! int ||
         j['clock'] < 0) {
       throw const FormatException('Operação incompatível.');
@@ -171,6 +171,14 @@ void validateData(String kind, Json d) {
   for (final key in ['note', 'category']) {
     if (d[key] != null && d[key] is! String)
       throw FormatException('Texto inválido: $key.');
+  }
+  if (kind == 'asset') {
+    text('name');
+    number('balance', zero: true);
+    date('date');
+    if (!assetGroups.containsKey(d['group']))
+      throw const FormatException('Escolha o tipo da reserva.');
+    return;
   }
   if (kind == 'client' || kind == 'category') {
     text('name');
